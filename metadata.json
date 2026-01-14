@@ -1,0 +1,7 @@
+{
+  "name": "Amazon Visual Insights & Generator",
+  "description": "A high-end Amazon listing analyzer and AI image generator. It extracts competitive intelligence from ASINs and generates professional marketing images and lifestyle photos while maintaining product consistency.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
