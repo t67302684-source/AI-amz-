@@ -1,82 +1,84 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// 确保从环境变量中正确获取 API_KEY
+const getApiKey = () => {
+  const key = process.env.API_KEY;
+  if (!key) {
+    console.error("未检测到环境变量 API_KEY，请确保在 Vercel 中已配置。");
+  }
+  return key || "";
+};
 
 export const analyzeListing = async (asinOrUrl: string) => {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   
-  // 改进的提示词：要求模型利用搜索工具访问多个公开渠道（包括亚马逊镜像、缓存或其他零售平台）以获取准确数据
+  // 强化版提示词：利用搜索工具绕过直接爬虫限制
   const prompt = `
-    你是一名资深的亚马逊Listing优化专家。
-    任务：深入分析 ASIN 或链接：${asinOrUrl}。
+    你是一个亚马逊运营专家。现在需要分析竞争对手：${asinOrUrl}。
     
-    注意：如果直接访问受限，请利用 Google Search 检索该 ASIN 在全球各站点、第三方监控工具（如 Keepa, Helium 10 公开页）的信息。
+    由于亚马逊官网有严格的反爬机制，请执行以下多重搜索策略：
+    1. 使用 Google Search 检索该 ASIN 的 Google Shopping、Walmart、eBay 镜像页面或第三方监控工具（如 Keepa, CamelCamelCamel）的公开缓存。
+    2. 提取该产品的正式标题、核心五点卖点 (Bullet Points)、物理属性（材质、颜色、尺寸、重量）。
+    3. 视觉分析任务：
+       - 搜索该 ASIN 在 Google 图片索引中的公开 CDN URL（通常是 m.media-amazon.com 开头的地址）。
+       - 分析其主图和辅图的视觉构图逻辑。
+       - 为每种图片（主图、生活场景、细节特写）生成一套高精度的 AI 绘图脚本。
     
-    请提取以下内容：
-    1. 产品的精确标题（去冗余后）。
-    2. 核心五点描述（提炼最有说服力的卖点）。
-    3. 详细属性：材质、颜色、尺寸、重量。
-    4. 视觉策略提取：
-       - 分析其主图和辅图的构图逻辑。
-       - 识别其使用的核心视觉元素（如：对比图、尺寸标注图、使用场景图）。
-       - 为每种图片类型提供一个 AI 图像生成提示词（Prompt），要求能够复现其作图风格。
-
-    必须返回标准的 JSON 格式。
+    必须严格按 JSON 格式返回。
   `;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: prompt,
-    config: {
-      tools: [{ googleSearch: {} }],
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          bulletPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
-          attributes: {
-            type: Type.OBJECT,
-            properties: {
-              material: { type: Type.STRING },
-              color: { type: Type.STRING },
-              size: { type: Type.STRING },
-              weight: { type: Type.STRING }
-            }
-          },
-          imageStrategies: {
-            type: Type.ARRAY,
-            items: {
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview', // 使用更强大的 Pro 模型进行复杂搜索分析
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            bulletPoints: { type: Type.ARRAY, items: { type: Type.STRING } },
+            attributes: {
               type: Type.OBJECT,
               properties: {
-                headline: { type: Type.STRING },
-                subheadline: { type: Type.STRING },
-                strategy: { type: Type.STRING },
-                aiPrompt: { type: Type.STRING },
-                imageUrl: { type: Type.STRING, description: "尝试寻找公开的图片 URL，如果找不到则留空" }
+                material: { type: Type.STRING },
+                color: { type: Type.STRING },
+                size: { type: Type.STRING },
+                weight: { type: Type.STRING }
+              }
+            },
+            imageStrategies: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  headline: { type: Type.STRING },
+                  subheadline: { type: Type.STRING },
+                  strategy: { type: Type.STRING },
+                  aiPrompt: { type: Type.STRING },
+                  imageUrl: { type: Type.STRING, description: "从搜索结果中提取的 m.media-amazon.com 图片链接" }
+                }
               }
             }
           }
         }
       }
-    }
-  });
+    });
 
-  try {
     return JSON.parse(response.text || '{}');
-  } catch (e) {
-    console.error("解析分析结果失败:", e);
+  } catch (error) {
+    console.error("AI 分析过程中出错:", error);
     return null;
   }
 };
 
 export const generateProductImage = async (prompt: string, baseImage?: string) => {
-  const ai = getAI();
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const contents: any = { parts: [{ text: prompt }] };
   
   if (baseImage) {
-    // 确保处理 base64 格式
     const base64Data = baseImage.includes(',') ? baseImage.split(',')[1] : baseImage;
     contents.parts.unshift({
       inlineData: {
